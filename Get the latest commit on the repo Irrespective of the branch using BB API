@@ -53,7 +53,7 @@ for (Repository repoNames: repositoriesinProject.getValues()) {
 
 		log.warn("Commiter details : " + commit.getCommitter())
 
-		log.warn("Latest commit has done before : " + getDurationInMinutes(latestCommittedTime) + " Min.")
+		log.warn("Latest commit has done before : " + getDurationInMinutes(latestCommittedTime) + " Mins.")
 
 		break;
 	}
