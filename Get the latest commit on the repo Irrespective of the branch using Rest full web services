@@ -1,0 +1,158 @@
+import java.net.HttpURLConnection;
+import java.net.URL;
+import java.nio.charset.StandardCharsets;
+import org.apache.commons.codec.binary.Base64;
+import java.io.BufferedInputStream;
+import java.io.InputStream;
+import java.net.HttpURLConnection;
+import org.apache.commons.io.IOUtils;
+import org.apache.log4j.Level;
+import org.apache.log4j.Logger;
+import org.json.JSONObject;
+import java.text.ParseException;
+import java.text.SimpleDateFormat;
+import java.time.Instant;
+import java.time.LocalDateTime;
+import java.time.ZoneId;
+import java.util.Calendar;
+import java.util.Date;
+
+
+
+
+
+
+// For authentication run this method to get the connection object
+public HttpURLConnection authenticate(String postUrl, String userName, String password) throws Exception {
+
+ // TODO Auto-generated method stab
+
+ String auth = userName + ":" + password;
+ byte[] encodedAuth = Base64.encodeBase64(auth.getBytes(StandardCharsets.UTF_8));
+ String authHeaderValue = "Basic " + new String(encodedAuth);
+ URL url = new URL(postUrl);
+ HttpURLConnection connection = (HttpURLConnection) url.openConnection();
+ connection.setConnectTimeout(5000);
+ connection.setRequestProperty("Authorization", authHeaderValue);
+ connection.setRequestProperty("Content-Type", "application/json; charset=UTF-8");
+ connection.setDoOutput(true);
+ connection.setDoInput(true);
+ return connection;
+}
+
+
+
+// Getting the repos which are commited very long while 
+
+String getInactiveReposUrl = "http://3.7.80.11:7990/rest/api/1.0/projects/SCRIP/repos";
+
+String userName = "admin";
+String password = "admin";
+
+HttpURLConnection getInactiveReposConnection = authenticate(getInactiveReposUrl, userName, password);
+getInactiveReposConnection.setRequestMethod("GET");
+
+// Response Code
+System.out.println(getInactiveReposConnection.getResponseCode());
+
+System.out.println(getInactiveReposConnection.getResponseMessage());
+
+InputStream inputStream = new BufferedInputStream(getInactiveReposConnection.getInputStream());
+String jsonResponse = IOUtils.toString(inputStream, "UTF-8");
+def log = Logger.getLogger("com.onresolve.scriptrunner.runner.ScriptRunnerImpl")
+log.setLevel(Level.DEBUG)
+
+JSONObject repositoryNames = new JSONObject(jsonResponse);
+log.warn("####################### We will evaluate each repository in the project one by one ###########################")
+for (int repoCount = 0; repoCount < repositoryNames.getInt("size"); repoCount++) {
+
+ log.warn("************************** We are evaluating : " + repositoryNames.getJSONArray("values").getJSONObject(repoCount).get("name") + " *******************************");
+ String repoNameInPlainText = repositoryNames.getJSONArray("values").getJSONObject(repoCount).get("name");
+ String repoName = repoNameInPlainText.replace(" ", "%20")
+ double duration = getDuration(repoName);
+ log.warn("The Duration between the latest commit and the current time is : " + duration)
+
+}
+
+public double getDuration(String repoName) {
+
+String userName = "admin";
+String password = "admin";
+def log = Logger.getLogger("com.onresolve.scriptrunner.runner.ScriptRunnerImpl")
+log.setLevel(Level.DEBUG)
+    
+String getBranchesUrl = "http://3.7.80.11:7990/rest/api/1.0/projects/SCRIP/repos/"+repoName+"/branches";
+
+
+
+HttpURLConnection getBranchesConnection = authenticate(getBranchesUrl, userName, password);
+getBranchesConnection.setRequestMethod("GET");
+
+
+
+InputStream inputStreamForBranches = new BufferedInputStream(getBranchesConnection.getInputStream());
+String jsonResponseForBranches = IOUtils.toString(inputStreamForBranches, "UTF-8");
+
+
+JSONObject branchDetails = new JSONObject(jsonResponseForBranches);
+
+
+
+// Getting the latest commit id
+String latestCommitId = branchDetails.getJSONArray("values").getJSONObject(0).get("latestCommit")
+    
+// This is to get the latest commited date on that repository
+String getLatestCommittedTimeConnectionUrl = "http://3.7.80.11:7990/rest/api/1.0/projects/SCRIP/repos/" + repoName + "/commits/"+latestCommitId+"/";
+HttpURLConnection getLatestCommittedTimeConnection  = authenticate(getLatestCommittedTimeConnectionUrl, userName, password);
+getLatestCommittedTimeConnection.setRequestMethod("GET");
+
+ 
+
+ InputStream inputStreamForCommittedTime = new BufferedInputStream(getLatestCommittedTimeConnection.getInputStream());
+ String jsonResponseForCommittedTime = IOUtils.toString(inputStreamForCommittedTime, "UTF-8");
+
+
+ JSONObject latestCommitedTimeObject = new JSONObject(jsonResponseForCommittedTime);
+
+ // Getting the latest commit date in the repos
+ log.warn("Latest commit time and date in epoch format : " + latestCommitedTimeObject.get("committerTimestamp"));
+ // The latest date and time in string 
+ String latestCommittedTimeInString = latestCommitedTimeObject.get("committerTimestamp");
+
+ // latest date and string in long 
+ long latestCommittedTime = Long.parseLong(latestCommittedTimeInString)
+
+
+ // Caclulating the current time in epoch 
+ Date today = Calendar.getInstance().getTime();
+
+ // Constructs a SimpleDateFormat using the given pattern
+ SimpleDateFormat dateFormat = new SimpleDateFormat("MMM dd yyyy HH:mm:ss.SSS zzz");
+
+ // format() formats a Date into a date/time string.
+ String currentTime = dateFormat.format(today);
+
+
+ try {
+
+  // parse() parses text from the beginning of the given string to produce a date.
+  Date date = dateFormat.parse(currentTime);
+
+  // getTime() returns the number of milliseconds since January 1, 1970, 00:00:00 GMT represented by this Date object.
+  long epochTime = date.getTime();
+
+
+  ZoneId defaultZoneId = ZoneId.systemDefault();
+  log.warn("defaultZoneId: " + defaultZoneId);
+
+  double durationInMinutes = (epochTime - latestCommittedTime) / (1000 * 60);
+  return durationInMinutes;
+
+
+
+ } catch (ParseException e) {
+  e.printStackTrace();
+ }
+}
+
+
