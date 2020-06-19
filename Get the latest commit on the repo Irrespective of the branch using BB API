@@ -1,0 +1,89 @@
+import com.atlassian.sal.api.component.ComponentLocator;
+import static com.onresolve.scriptrunner.canned.bitbucket.util.BitbucketCannedScriptUtils.unlimitedPager
+import com.atlassian.bitbucket.repository. * ;
+import com.atlassian.bitbucket.project.ProjectService;
+import com.atlassian.bitbucket.repository.SimpleRepositoryRef;
+import com.atlassian.bitbucket.commit. * ;
+import java.time.LocalDateTime;
+import java.time.ZoneId;
+import java.util.Calendar;
+import java.util.Date;
+import java.text.SimpleDateFormat;
+import java.text.ParseException;
+
+//Getting RepoService 
+def repositoryService = ComponentLocator.getComponent(RepositoryService.class)
+
+//Getting ProjService
+def projectService = ComponentLocator.getComponent(ProjectService.class)
+
+//Getting project object
+def projectObject = projectService.getByKey("SCRIP")
+
+//Getting repos in the project
+def repositoriesinProject = repositoryService.findByProjectKey("SCRIP", getUnlimitedPager())
+
+//Getting commit service
+def commitService = ComponentLocator.getComponent(CommitService.class)
+
+log.warn("################# We will evaluate each repos of the project one by one ###################")
+
+// This for loop is for getting the repo name in the project one by one with the Repository return type
+for (Repository repoNames: repositoriesinProject.getValues()) {
+	log.warn("**************** We are evaluating : " + repoNames + " :*****************")
+
+	RepositoryBranchesRequest.Builder builder = new RepositoryBranchesRequest.Builder(repoNames)
+
+	//Getting refSerivice 
+	def refService = ComponentLocator.getComponent(RefService.class);
+
+	// This for loop is for getting the branches in the repo with the Branch as the return type
+
+	for (Branch branchList: refService.getBranches(builder.build(), getUnlimitedPager()).getValues()) {
+
+		log.warn("This is the latest commit id of the above repository : " + branchList.getLatestCommit())
+
+		//Building the commit by passing the repo object and commit id
+		CommitRequest commitBuilder = new CommitRequest.Builder(repoNames, branchList.getLatestCommit().toString()).build()
+		Commit commit = commitService.getCommit(commitBuilder)
+
+		// Getting the latest commited time in epoch format 
+		long latestCommittedTime = commit.getAuthorTimestamp().getTime()
+		log.warn("Latest committed time in epoch format is : " + latestCommittedTime)
+
+		log.warn("Commiter details : " + commit.getCommitter())
+
+		log.warn("Latest commit has done before : " + getDurationInMinutes(latestCommittedTime) + " Min.")
+
+		break;
+	}
+
+}
+
+public double getDurationInMinutes(long latestCommittedTimeInEpoch) { // Caclulating the current time in epoch 
+	Date today = Calendar.getInstance().getTime();
+
+	// Constructs a SimpleDateFormat using the given pattern
+	SimpleDateFormat dateFormat = new SimpleDateFormat("MMM dd yyyy HH:mm:ss.SSS zzz");
+
+	// format() formats a Date into a date/time string.
+	String currentTime = dateFormat.format(today);
+
+	try {
+
+		// parse() parses text from the beginning of the given string to produce a date.
+		Date date = dateFormat.parse(currentTime);
+
+		// getTime() returns the number of milliseconds since January 1, 1970, 00:00:00 GMT represented by this Date object.
+		long currentEpochTime = date.getTime();
+
+		ZoneId defaultZoneId = ZoneId.systemDefault();
+		log.warn("defaultZoneId : " + defaultZoneId);
+
+		double durationInMinutes = (currentEpochTime - latestCommittedTimeInEpoch) / (1000 * 60);
+		return durationInMinutes;
+
+	} catch(ParseException e) {
+		e.printStackTrace();
+	}
+}
