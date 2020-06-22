@@ -1,158 +1,93 @@
-import java.net.HttpURLConnection;
-import java.net.URL;
-import java.nio.charset.StandardCharsets;
-import org.apache.commons.codec.binary.Base64;
-import java.io.BufferedInputStream;
-import java.io.InputStream;
-import java.net.HttpURLConnection;
-import org.apache.commons.io.IOUtils;
-import org.apache.log4j.Level;
-import org.apache.log4j.Logger;
-import org.json.JSONObject;
-import java.text.ParseException;
-import java.text.SimpleDateFormat;
-import java.time.Instant;
+import com.atlassian.sal.api.component.ComponentLocator;
+import static com.onresolve.scriptrunner.canned.bitbucket.util.BitbucketCannedScriptUtils.unlimitedPager
+import com.atlassian.bitbucket.repository. * ;
+import com.atlassian.bitbucket.project.ProjectService;
+import com.atlassian.bitbucket.repository.SimpleRepositoryRef;
+import com.atlassian.bitbucket.commit. * ;
 import java.time.LocalDateTime;
 import java.time.ZoneId;
 import java.util.Calendar;
 import java.util.Date;
+import java.text.SimpleDateFormat;
+import java.text.ParseException;
 
+//Getting RepoService 
+def repositoryService = ComponentLocator.getComponent(RepositoryService.class)
 
+//Getting ProjService
+def projectService = ComponentLocator.getComponent(ProjectService.class)
 
+//Getting project object
+def projectObject = projectService.getByKey("SCRIP")
 
+//Getting repos in the project
+def repositoriesinProject = repositoryService.findByProjectKey("SCRIP", getUnlimitedPager())
 
+//Getting commit service
+def commitService = ComponentLocator.getComponent(CommitService.class)
 
-// For authentication run this method to get the connection object
-public HttpURLConnection authenticate(String postUrl, String userName, String password) throws Exception {
+//Getting refSerivice 
+def refService = ComponentLocator.getComponent(RefService.class);
 
- // TODO Auto-generated method stab
+long latestCommittedTime;
 
- String auth = userName + ":" + password;
- byte[] encodedAuth = Base64.encodeBase64(auth.getBytes(StandardCharsets.UTF_8));
- String authHeaderValue = "Basic " + new String(encodedAuth);
- URL url = new URL(postUrl);
- HttpURLConnection connection = (HttpURLConnection) url.openConnection();
- connection.setConnectTimeout(5000);
- connection.setRequestProperty("Authorization", authHeaderValue);
- connection.setRequestProperty("Content-Type", "application/json; charset=UTF-8");
- connection.setDoOutput(true);
- connection.setDoInput(true);
- return connection;
-}
+log.warn("################# We will evaluate each repos of the project one by one ###################")
 
+// This for loop is for getting the repo name in the project one by one with the Repository return type
+for (Repository repoNames: repositoriesinProject.getValues()) {
+	log.warn("**************** We are evaluating : " + repoNames + " :*****************")
 
+	RepositoryBranchesRequest.Builder builder = new RepositoryBranchesRequest.Builder(repoNames)
 
-// Getting the repos which are commited very long while 
+	
 
-String getInactiveReposUrl = "http://3.7.80.11:7990/rest/api/1.0/projects/SCRIP/repos";
+	// This for loop is for getting the branches in the repo with the Branch as the return type
 
-String userName = "admin";
-String password = "admin";
+	for (Branch branchList: refService.getBranches(builder.build(), getUnlimitedPager()).getValues()) {
 
-HttpURLConnection getInactiveReposConnection = authenticate(getInactiveReposUrl, userName, password);
-getInactiveReposConnection.setRequestMethod("GET");
+		log.warn("This is the latest commit id of the above repository : " + branchList.getLatestCommit())
 
-// Response Code
-System.out.println(getInactiveReposConnection.getResponseCode());
+		//Building the commit by passing the repo object and commit id
+		CommitRequest commitBuilder = new CommitRequest.Builder(repoNames, branchList.getLatestCommit().toString()).build()
+		Commit commit = commitService.getCommit(commitBuilder)
 
-System.out.println(getInactiveReposConnection.getResponseMessage());
+		// Getting the latest commited time in epoch format 
+	    latestCommittedTime = commit.getAuthorTimestamp().getTime()
+		log.warn("Latest committed time in epoch format is : " + latestCommittedTime)
 
-InputStream inputStream = new BufferedInputStream(getInactiveReposConnection.getInputStream());
-String jsonResponse = IOUtils.toString(inputStream, "UTF-8");
-def log = Logger.getLogger("com.onresolve.scriptrunner.runner.ScriptRunnerImpl")
-log.setLevel(Level.DEBUG)
+		log.warn("Commiter details : " + commit.getCommitter())
 
-JSONObject repositoryNames = new JSONObject(jsonResponse);
-log.warn("####################### We will evaluate each repository in the project one by one ###########################")
-for (int repoCount = 0; repoCount < repositoryNames.getInt("size"); repoCount++) {
+		log.warn("Latest commit has done before : " + getDurationInMinutes(latestCommittedTime) + " Mins.")
 
- log.warn("************************** We are evaluating : " + repositoryNames.getJSONArray("values").getJSONObject(repoCount).get("name") + " *******************************");
- String repoNameInPlainText = repositoryNames.getJSONArray("values").getJSONObject(repoCount).get("name");
- String repoName = repoNameInPlainText.replace(" ", "%20")
- double duration = getDuration(repoName);
- log.warn("The Duration between the latest commit and the current time is : " + duration)
+		break;
+	}
 
 }
 
-public double getDuration(String repoName) {
+public double getDurationInMinutes(long latestCommittedTimeInEpoch) { // Caclulating the current time in epoch 
+	Date today = Calendar.getInstance().getTime();
 
-String userName = "admin";
-String password = "admin";
-def log = Logger.getLogger("com.onresolve.scriptrunner.runner.ScriptRunnerImpl")
-log.setLevel(Level.DEBUG)
-    
-String getBranchesUrl = "http://3.7.80.11:7990/rest/api/1.0/projects/SCRIP/repos/"+repoName+"/branches";
+	// Constructs a SimpleDateFormat using the given pattern
+	SimpleDateFormat dateFormat = new SimpleDateFormat("MMM dd yyyy HH:mm:ss.SSS zzz");
 
+	// format() formats a Date into a date/time string.
+	String currentTime = dateFormat.format(today);
 
+	try {
 
-HttpURLConnection getBranchesConnection = authenticate(getBranchesUrl, userName, password);
-getBranchesConnection.setRequestMethod("GET");
+		// parse() parses text from the beginning of the given string to produce a date.
+		Date date = dateFormat.parse(currentTime);
 
+		// getTime() returns the number of milliseconds since January 1, 1970, 00:00:00 GMT represented by this Date object.
+		long currentEpochTime = date.getTime();
 
+		ZoneId defaultZoneId = ZoneId.systemDefault();
+		log.warn("defaultZoneId : " + defaultZoneId);
 
-InputStream inputStreamForBranches = new BufferedInputStream(getBranchesConnection.getInputStream());
-String jsonResponseForBranches = IOUtils.toString(inputStreamForBranches, "UTF-8");
+		double durationInMinutes = (currentEpochTime - latestCommittedTimeInEpoch) / (1000 * 60);
+		return durationInMinutes;
 
-
-JSONObject branchDetails = new JSONObject(jsonResponseForBranches);
-
-
-
-// Getting the latest commit id
-String latestCommitId = branchDetails.getJSONArray("values").getJSONObject(0).get("latestCommit")
-    
-// This is to get the latest commited date on that repository
-String getLatestCommittedTimeConnectionUrl = "http://3.7.80.11:7990/rest/api/1.0/projects/SCRIP/repos/" + repoName + "/commits/"+latestCommitId+"/";
-HttpURLConnection getLatestCommittedTimeConnection  = authenticate(getLatestCommittedTimeConnectionUrl, userName, password);
-getLatestCommittedTimeConnection.setRequestMethod("GET");
-
- 
-
- InputStream inputStreamForCommittedTime = new BufferedInputStream(getLatestCommittedTimeConnection.getInputStream());
- String jsonResponseForCommittedTime = IOUtils.toString(inputStreamForCommittedTime, "UTF-8");
-
-
- JSONObject latestCommitedTimeObject = new JSONObject(jsonResponseForCommittedTime);
-
- // Getting the latest commit date in the repos
- log.warn("Latest commit time and date in epoch format : " + latestCommitedTimeObject.get("committerTimestamp"));
- // The latest date and time in string 
- String latestCommittedTimeInString = latestCommitedTimeObject.get("committerTimestamp");
-
- // latest date and string in long 
- long latestCommittedTime = Long.parseLong(latestCommittedTimeInString)
-
-
- // Caclulating the current time in epoch 
- Date today = Calendar.getInstance().getTime();
-
- // Constructs a SimpleDateFormat using the given pattern
- SimpleDateFormat dateFormat = new SimpleDateFormat("MMM dd yyyy HH:mm:ss.SSS zzz");
-
- // format() formats a Date into a date/time string.
- String currentTime = dateFormat.format(today);
-
-
- try {
-
-  // parse() parses text from the beginning of the given string to produce a date.
-  Date date = dateFormat.parse(currentTime);
-
-  // getTime() returns the number of milliseconds since January 1, 1970, 00:00:00 GMT represented by this Date object.
-  long epochTime = date.getTime();
-
-
-  ZoneId defaultZoneId = ZoneId.systemDefault();
-  log.warn("defaultZoneId: " + defaultZoneId);
-
-  double durationInMinutes = (epochTime - latestCommittedTime) / (1000 * 60);
-  return durationInMinutes;
-
-
-
- } catch (ParseException e) {
-  e.printStackTrace();
- }
+	} catch(ParseException e) {
+		e.printStackTrace();
+	}
 }
-
-
